@@ -1,0 +1,268 @@
+#include <termio.h>
+#include <stdio.h> 
+#include <string.h> 
+#include <unistd.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <termios.h>
+#include <sys/stat.h>
+#include <errno.h>
+
+int fd,nByte;
+char *uart3 = "/dev/ttyS1";
+char buff[512];
+char uart_send[1024];
+int key[4];//key[0] is Go;key[1] is Back;key[2] is Left;key[3] is right
+int key_default[4]={0x77,0x73,0x61,0x64};
+short flag; 
+
+int set_opt(int fd,int nSpeed, int nBits, char nEvent, int nStop)
+{
+		struct termios newtio,oldtio;
+		if  ( tcgetattr( fd,&oldtio)  !=  0) {
+			perror("SetupSerial 1");
+			return -1;
+		}
+		bzero( &newtio, sizeof( newtio ) );
+		newtio.c_cflag  |=  CLOCAL | CREAD;
+		newtio.c_cflag &= ~CSIZE;
+ 
+		switch( nBits )
+		{
+			case 7:
+				newtio.c_cflag |= CS7;
+				break;
+			case 8:
+				newtio.c_cflag |= CS8;
+				break;
+		}
+ 
+		switch( nEvent )
+		{
+		case 'O':
+			newtio.c_cflag |= PARENB;
+			newtio.c_cflag |= PARODD;
+			newtio.c_iflag |= (INPCK | ISTRIP);
+			break;
+		case 'E': 
+			newtio.c_iflag |= (INPCK | ISTRIP);
+			newtio.c_cflag |= PARENB;
+			newtio.c_cflag &= ~PARODD;
+			break;
+		case 'N':  
+			newtio.c_cflag &= ~PARENB;
+			break;
+		}
+ 
+		switch( nSpeed )
+		{
+			case 2400:
+				cfsetispeed(&newtio, B2400);
+				cfsetospeed(&newtio, B2400);
+				break;
+			case 4800:
+				cfsetispeed(&newtio, B4800);
+				cfsetospeed(&newtio, B4800);
+				break;
+			case 9600:
+				cfsetispeed(&newtio, B9600);
+				cfsetospeed(&newtio, B9600);
+				break;
+			case 115200:
+				cfsetispeed(&newtio, B115200);
+				cfsetospeed(&newtio, B115200);
+				break;
+			case 460800:
+				cfsetispeed(&newtio, B460800);
+				cfsetospeed(&newtio, B460800);
+				break;
+			default:
+				cfsetispeed(&newtio, B9600);
+				cfsetospeed(&newtio, B9600);
+				break;
+		}
+		if( nStop == 1 )
+			newtio.c_cflag &=  ~CSTOPB;
+		else if ( nStop == 2 )
+			newtio.c_cflag |=  CSTOPB;
+			newtio.c_cc[VTIME]  = 0;
+			newtio.c_cc[VMIN] = 0;
+			tcflush(fd,TCIFLUSH);
+		if((tcsetattr(fd,TCSANOW,&newtio))!=0)
+		{
+			perror("com set error!!!");
+			return -1;
+		}
+		
+			printf("uart config OK!\n\r");
+		return 0;
+}
+ 
+void UART_Init(int fd,char *uart3)
+{
+	memset(buff,0,sizeof(buff));
+	if(fd<0)
+	{
+		printf("open error\n");
+	}else
+	{
+		set_opt(fd,115200,8,'N',1);
+		strcpy(uart_send,"Press the key to see its function\n\r");
+		write(fd,uart_send,strlen(uart_send));
+		strcpy(uart_send,"Send [P] to personalize your shortcuts keys \n\r");
+		write(fd,uart_send,strlen(uart_send));
+	}
+}
+
+void Show_key()
+{
+	strcpy(uart_send,"current settings: \n\r");
+	write(fd,uart_send,strlen(uart_send));
+	strcpy(uart_send,"[Go]:");
+	write(fd,uart_send,strlen(uart_send));
+	write(fd,(char*)&key[0],1);
+	strcpy(uart_send,"[Back]:");
+	write(fd,uart_send,strlen(uart_send));
+	write(fd,(char*)&key[1],1);
+	strcpy(uart_send,"[Left]:");
+	write(fd,uart_send,strlen(uart_send));
+	write(fd,(char*)&key[2],1);
+	strcpy(uart_send,"[Right]:");
+	write(fd,uart_send,strlen(uart_send));
+	write(fd,(char*)&key[3],1);
+	strcpy(uart_send,"\n\r");
+	write(fd,uart_send,strlen(uart_send));
+}
+/*恢复默认快捷键*/
+void Key_Default()
+{
+	int i;
+    for (i=0; i<4; ++i)
+    {
+        key[i] = key_default[i];
+    }
+}
+
+void scanKeyboard()
+{
+	int in;
+	char result[50];
+
+	struct termios new_settings;
+	struct termios stored_settings;
+	tcgetattr(0,&stored_settings);
+	new_settings = stored_settings;
+
+	new_settings.c_lflag &= (~ICANON);
+	new_settings.c_cc[VTIME] = 0;
+	new_settings.c_cc[VMIN] = 1;
+	tcsetattr(0,TCSANOW,&new_settings);
+ 
+	in = getchar();
+ 
+	tcsetattr(0,TCSANOW,&stored_settings);//应用新设置
+	if(in==key[0] || in==key[0]-0x20 || in==key[0]+0x20)
+	{write(fd,(char*)&key[0],1);
+	strcpy(uart_send," = Go\n\r");
+	write(fd,uart_send,strlen(uart_send));}
+	else if(in==key[1] || in==key[1]-0x20 || in==key[1]+0x20)
+	{write(fd,(char*)&key[1],1);
+	strcpy(uart_send," = Back\n\r");
+	write(fd,uart_send,strlen(uart_send));}
+	else if(in==key[2] || in==key[2]-0x20 || in==key[2]+0x20)
+	{write(fd,(char*)&key[2],1);strcpy(uart_send," = Left\n\r");
+	write(fd,uart_send,strlen(uart_send));}
+	else if(in==key[3] || in==key[3]-0x20 || in==key[3]+0x20)
+	{write(fd,(char*)&key[3],1);strcpy(uart_send," = Right\n\r");
+	write(fd,uart_send,strlen(uart_send));}
+	else
+	{write(fd,(char*)&in,1);strcpy(uart_send," is undefined\n\r");
+	write(fd,uart_send,strlen(uart_send));}
+	if(nByte=read(fd,buff,512)>0 && (buff[0]==0x70 || buff[0]==0x50))	
+	{flag = 1;}
+	else{flag = 0;}
+}
+/*modify*/
+void Modify_Key()
+{
+		strcpy(uart_send,"Choose the key you want to modify\n\r");
+		write(fd,uart_send,strlen(uart_send));
+		strcpy(uart_send,"[G]Go  [B]Back  [L]left  [R]right");
+		write(fd,uart_send,strlen(uart_send));
+		strcpy(uart_send,"     (case insensitive)\n\r");
+		write(fd,uart_send,strlen(uart_send));
+		while((nByte=read(fd,buff,512))==0)
+		{nByte=read(fd,buff,512);}
+		buff[nByte+1]='\0';
+		if(buff[0]==0x67||buff[0]==0x47)
+		{
+		strcpy(uart_send,"Which key do you want to bind with the [Go] function?\n\r");
+		write(fd,uart_send,strlen(uart_send));
+		memset(buff,0,strlen(buff));
+		nByte=0;
+		nByte=read(fd,buff,512);
+		while(nByte==0){nByte=read(fd,buff,512);}
+		buff[nByte+1]='\0';
+		key[0]=buff[0];
+		}
+	else if(buff[0]==0x42||buff[0]==0x62)
+	{
+		strcpy(uart_send,"Which key do you want to bind with the [Back] function?\n\r");
+		write(fd,uart_send,strlen(uart_send));
+		memset(buff,0,strlen(buff));
+		nByte=0;
+		nByte=read(fd,buff,512);
+		while(nByte==0){nByte=read(fd,buff,512);}
+		buff[nByte+1]='\0';
+		key[1]=buff[0];
+	}
+	else if(buff[0]==0x6C||buff[0]==0x4C)
+	{
+		strcpy(uart_send,"Which key do you want to bind with the [Left] function?\n\r");
+		write(fd,uart_send,strlen(uart_send));
+		memset(buff,0,strlen(buff));
+		nByte=0;
+		nByte=read(fd,buff,512);
+		while(nByte==0){nByte=read(fd,buff,512);}
+		buff[nByte+1]='\0';
+		key[2]=buff[0];
+	}
+	else if(buff[0]==0x52||buff[0]==0x72)
+	{
+		strcpy(uart_send,"Which key do you want to bind with the [Right] function?\n\r");
+		write(fd,uart_send,strlen(uart_send));
+		memset(buff,0,strlen(buff));
+		nByte=0;
+		nByte=read(fd,buff,512);
+		while(nByte==0){nByte=read(fd,buff,512);}
+		buff[nByte+1]='\0';
+		key[3]=buff[0];
+	}
+	else 
+	{
+		strcpy(uart_send,"Undefined Function!!\n\r");
+		write(fd,uart_send,strlen(uart_send));
+	
+	}
+		Show_key();
+		memset(buff,0,strlen(buff));
+		nByte=0;
+		flag = 0;
+}
+/*main function*/
+int main()
+{
+	fd=open(uart3,O_RDWR | O_NOCTTY);
+	nByte=read(fd,buff,512);
+	UART_Init(fd,uart3);
+	Key_Default();
+	flag = 0;
+	while(1)
+	{
+		if(flag==0)
+		{scanKeyboard();}
+		else if(flag==1)
+		{Modify_Key();}
+	}
+}
